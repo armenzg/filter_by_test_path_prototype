@@ -2,17 +2,40 @@
 import { hot } from 'react-hot-loader';
 import React from 'react';
 
+import Job from './Job';
 import Form from './Form';
+
+const rootUrl = 'https://firefox-ci-tc.services.mozilla.com';
+const thUrl = 'https://treeherder.mozilla.org';
+
+const fetchJobs = async (pushId, nextUrl = undefined) => {
+  const jobsUrl = nextUrl || `${thUrl}/api/jobs/?push_id=${pushId}`;
+  const { next, results } = await (await fetch(jobsUrl)).json();
+  let jobs = [];
+  if (!next) {
+    jobs = results;
+  } else {
+    jobs = await fetchJobs(pushId, next);
+  }
+  return jobs;
+};
+
+const resetFetchedData = () => ({
+  jobs: [],
+  taskNameToManifests: {},
+});
 
 class App extends React.PureComponent {
   handleChange = this.handleChange.bind(this);
   handleSubmit = this.handleSubmit.bind(this);
-  rootUrl = 'https://firefox-ci-tc.services.mozilla.com';
+  handlePaste = this.handlePaste.bind(this);
+
   state = {
+    jobs: [],
     taskNameToManifests: {},
-    project: 'mozilla-central',
-    revision: '192e0e33eb597e8d923eb89f6d49bf42654e9d11',
-    testPath: 'devtools/client/inspector/changes/test/browser.ini',
+    project: 'autoland',
+    revision: '36d7acc1140df4e23b875177990b56362ea9a69f',
+    manifestPath: 'devtools/client/inspector/changes/test/browser.ini',
   };
 
   async componentDidMount() {
@@ -21,18 +44,37 @@ class App extends React.PureComponent {
 
   async fetchData() {
     const { project, revision } = this.state;
-    const url = `${this.rootUrl}/api/index/v1/task/gecko.v2.${project}.revision.${revision}.firefox.decision/artifacts/public/manifests-by-task.json`;
+    const url = `${rootUrl}/api/index/v1/task/gecko.v2.${project}.revision.${revision}.firefox.decision/artifacts/public/manifests-by-task.json`;
     const response = await fetch(url);
     if (response.status === 200) {
       this.setState({ taskNameToManifests: await response.json() });
+    } else {
+      this.setState({ errorMessage: `Failed to load ${url}` });
     }
+    const jobs = await this.fetchJobs(project, revision);
+    this.setState({ jobs });
+  }
+
+  // eslint-disable-next-line
+  async fetchJobs(project, revision) {
+    const pushUrl = `${thUrl}/api/project/${project}/push/?full=true&count=10&revision=${revision}`;
+    const { results } = await (await fetch(pushUrl)).json();
+    return fetchJobs(results[0].id);
   }
 
   handleChange(event) {
     this.setState({
       [event.target.name]: event.target.value,
-      taskNameToManifests: {},
+      ...resetFetchedData(),
     });
+  }
+
+  handlePaste(event) {
+    this.setState({
+      [event.target.name]: event.clipboardData.getData('Text'),
+      ...resetFetchedData(),
+    });
+    event.preventDefault();
   }
 
   handleSubmit(event) {
@@ -42,15 +84,28 @@ class App extends React.PureComponent {
 
   render() {
     const {
-      project, revision, taskNameToManifests, testPath,
+      jobs, errorMessage, project, revision, taskNameToManifests, manifestPath,
     } = this.state;
     const tasks = [];
     const pathsToTasks = {};
 
+    if (jobs.length > 0 && Object.keys(taskNameToManifests).length > 0) {
+      jobs.forEach((job) => {
+        const taskName = job[4];
+        const paths = taskNameToManifests[taskName] || [];
+        if (paths.find((path) => path === manifestPath)) {
+          tasks.push({
+            id: job[1],
+            url: `${thUrl}/#/jobs?repo=${project}&revision=${revision}&selectedJob=${job[1]}&searchStr=${job[4]}`,
+            symbol: job[5],
+            platform: job[7],
+            result: job[9],
+          });
+        }
+      });
+    }
+
     Object.entries(taskNameToManifests).forEach(([taskName, manifestPaths]) => {
-      if (manifestPaths.find((path) => path === testPath)) {
-        tasks.push(taskName);
-      }
       manifestPaths.forEach((path) => {
         if (!pathsToTasks[path]) {
           pathsToTasks[path] = [taskName];
@@ -61,32 +116,38 @@ class App extends React.PureComponent {
     });
     return (
       <div>
-        <div>
-          <span>TODO:</span>
-          <ul>
-            <li>Fetch actual executed tasks for a push</li>
-            <li>Add links to actual jobs (or logs)</li>
-            <li>Support partial match of test path</li>
-          </ul>
-        </div>
+        {errorMessage && <h3>{errorMessage}</h3>}
+        <h3 style={{ fontWeight: 'bold' }}>
+            NOTE: There is a bug that repositories that have nightly builds will
+            fail for pushes with Nightly builds. This will be fixed.
+        </h3>
+        <h3 style={{ fontWeight: 'bold' }}>
+            NOTE: Using this in autoland can result on no tasks matching because of SETA
+            affecting what runs.
+        </h3>
         <Form
           handleChange={this.handleChange}
           handleSubmit={this.handleSubmit}
+          handlePaste={this.handlePaste}
           project={project}
           revision={revision}
-          testPath={testPath}
+          manifestPath={manifestPath}
         />
         <br />
         {tasks.length > 0 && (
           <div>
-            <span>{`Tasks matching ${testPath} for ${project}/${revision}`}</span>
-            <ol>
-              {tasks.sort().map((taskName) => <li key={taskName}>{taskName}</li>)}
-            </ol>
-            <span>Available test manifest paths:</span>
-            <ol>
-              {Object.keys(pathsToTasks).map((path) => <li key={path}>{path}</li>)}
-            </ol>
+            <span>Tasks executed on this push that match the selected manifest path:</span>
+            <ul>
+              {tasks.map((job) => <li key={job.id}><Job job={job} /></li>)}
+            </ul>
+          </div>
+        )}
+        {Object.keys(pathsToTasks).length > 0 && (
+          <div>
+            <span>Available manifest paths:</span>
+            <ul>
+              {Object.keys(pathsToTasks).sort().map((path) => <li key={path}>{path}</li>)}
+            </ul>
           </div>
         )}
       </div>
