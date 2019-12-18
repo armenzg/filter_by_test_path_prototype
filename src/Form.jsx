@@ -5,22 +5,22 @@ import PropTypes from 'prop-types';
 class Form extends React.PureComponent {
   render() {
     const {
-      handleChange, handleSubmit, project, revision, testPath,
+      handleChange, handlePaste, handleSubmit, manifestPath, project, revision,
     } = this.props;
 
     return (
       <form onSubmit={handleSubmit}>
         <label>
           Repo:
-          <input name="project" type="text" value={project} onChange={handleChange} />
+          <input name="project" type="text" value={project} onChange={handleChange} onPaste={handlePaste} />
         </label>
         <label>
           Revision:
-          <input name="revision" type="text" value={revision} onChange={handleChange} />
+          <input name="revision" type="text" value={revision} onChange={handleChange} onPaste={handlePaste} />
         </label>
         <label>
-          Test path:
-          <input name="testPath" type="text" value={testPath} onChange={handleChange} />
+          Manifest path:
+          <input name="manifestPath" type="text" value={manifestPath} onChange={handleChange} onPaste={handlePaste} />
         </label>
         <input type="submit" value="Submit" />
       </form>
@@ -30,10 +30,11 @@ class Form extends React.PureComponent {
 
 Form.propTypes = {
   handleChange: PropTypes.func.isRequired,
+  handlePaste: PropTypes.func.isRequired,
   handleSubmit: PropTypes.func.isRequired,
+  manifestPath: PropTypes.string.isRequired,
   project: PropTypes.string.isRequired,
   revision: PropTypes.string.isRequired,
-  testPath: PropTypes.string.isRequired,
 };
 
 export default Form;
